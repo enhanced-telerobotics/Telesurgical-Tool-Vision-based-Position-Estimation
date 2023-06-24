@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader
 import torch.nn as nn
 import torch.optim as optim
+from tqdm import tqdm
 
 
 class TwoInputFCNN:
@@ -30,7 +31,7 @@ class TwoInputFCNN:
     def parameters(self):
         return list(self.model_R.parameters()) + list(self.model_L.parameters()) + list(self.fc.parameters())
 
-    def train(self, X_R, X_L, y, epochs=100, batch_size=32):
+    def train(self, X_R, X_L, y, epochs=100, batch_size=32, use_tqdm=True):
         X_R_tensor = torch.tensor(X_R, dtype=torch.float32).to(self.device)
         X_L_tensor = torch.tensor(X_L, dtype=torch.float32).to(self.device)
         y_tensor = torch.tensor(y, dtype=torch.float32).to(self.device)
@@ -38,6 +39,11 @@ class TwoInputFCNN:
         dataset = TensorDataset(X_R_tensor, X_L_tensor, y_tensor)
         data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
+        pbar = None
+        if use_tqdm:
+            pbar = tqdm(total=epochs*len(data_loader), desc="Training Progress")
+
+        step = 0
         for epoch in range(epochs):
             for X_R_batch, X_L_batch, y_batch in data_loader:
                 self.optimizer.zero_grad()
@@ -48,8 +54,18 @@ class TwoInputFCNN:
                 loss = self.criterion(y_pred, y_batch)
                 loss.backward()
                 self.optimizer.step()
-            if epoch % 10 == 0:
-                print(f'Epoch: {epoch}, Loss: {loss.item():.2f}')
+
+                if use_tqdm:
+                    if step % len(data_loader) == 0:
+                        pbar.set_postfix({'loss': loss.item()})
+
+                    pbar.set_description(f"Epoch {epoch}")
+                    pbar.update()
+
+                step += 1
+
+        if use_tqdm:
+            pbar.close()
 
     def predict(self, X_R, X_L):
         X_R_tensor = torch.tensor(X_R, dtype=torch.float32).to(self.device)
