@@ -45,7 +45,6 @@ class TwoInputFCNN:
                 out_L = self.model_L(X_L_batch)
                 out = torch.cat((out_R, out_L), dim=1)
                 y_pred = self.fc(out)
-                y_pred = y_pred.squeeze()
                 loss = self.criterion(y_pred, y_batch)
                 loss.backward()
                 self.optimizer.step()
@@ -64,6 +63,6 @@ class TwoInputFCNN:
 if __name__ == '__main__':
     pass
     # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # net = TwoInputFCNN(input_dim=32, hidden_dim=64, output_dim=1, device=device)
+    # net = TwoInputFCNN(input_dim=32, hidden_dim=64, output_dim=3, device=device)  # changed output_dim to 3
     # net.train(X_train_R, X_train_L, y_train, epochs=100)
     # y_pred = net.predict(X_test_R, X_test_L)
