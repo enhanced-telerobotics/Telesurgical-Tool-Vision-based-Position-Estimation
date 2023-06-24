@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 
 class TwoInputFCNN:
-    def __init__(self, input_dim, hidden_dim, output_dim, device):
+    def __init__(self, input_dim, hidden_dim, output_dim, device, lr=0.001):
         self.device = device
 
         self.model_R = nn.Sequential(
@@ -26,7 +26,7 @@ class TwoInputFCNN:
         self.fc = nn.Linear(hidden_dim * 2, output_dim).to(self.device)
 
         self.criterion = nn.MSELoss()
-        self.optimizer = optim.Adam(self.parameters(), lr=0.001)
+        self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
     def parameters(self):
         return list(self.model_R.parameters()) + list(self.model_L.parameters()) + list(self.fc.parameters())
