@@ -3,11 +3,14 @@ from torch.utils.data import TensorDataset, DataLoader
 import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
+import numpy as np
 
 
 class TwoInputFCNN:
     def __init__(self, input_dim, hidden_dim, output_dim, device, lr=0.001):
         self.device = device
+        self.lr = lr
+        self.losses = []
 
         self.model_R = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -26,12 +29,12 @@ class TwoInputFCNN:
         self.fc = nn.Linear(hidden_dim * 2, output_dim).to(self.device)
 
         self.criterion = nn.MSELoss()
-        self.optimizer = optim.Adam(self.parameters(), lr=lr)
+        self.optimizer = optim.Adam(self.parameters(), lr=self.lr)
 
     def parameters(self):
         return list(self.model_R.parameters()) + list(self.model_L.parameters()) + list(self.fc.parameters())
 
-    def train(self, X_R, X_L, y, epochs=100, batch_size=32, use_tqdm=True):
+    def train(self, X_R, X_L, y, epochs=100, batch_size=32, use_tqdm=True, save_loss=False):
         X_R_tensor = torch.tensor(X_R, dtype=torch.float32).to(self.device)
         X_L_tensor = torch.tensor(X_L, dtype=torch.float32).to(self.device)
         y_tensor = torch.tensor(y, dtype=torch.float32).to(self.device)
@@ -41,7 +44,8 @@ class TwoInputFCNN:
 
         pbar = None
         if use_tqdm:
-            pbar = tqdm(total=epochs*len(data_loader), desc="Training Progress")
+            pbar = tqdm(total=epochs*len(data_loader),
+                        desc="Training Progress")
 
         step = 0
         for epoch in range(epochs):
@@ -61,11 +65,16 @@ class TwoInputFCNN:
 
                     pbar.set_description(f"Epoch {epoch}")
                     pbar.update()
-
                 step += 1
+
+            if save_loss:
+                self.losses.append((epoch, loss.item()))
 
         if use_tqdm:
             pbar.close()
+
+        if save_loss:
+            np.save('losses.npy', np.array(self.losses))
 
     def predict(self, X_R, X_L):
         X_R_tensor = torch.tensor(X_R, dtype=torch.float32).to(self.device)
