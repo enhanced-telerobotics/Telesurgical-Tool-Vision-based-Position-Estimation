@@ -2,7 +2,6 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader
 import torch.nn as nn
 import torch.optim as optim
-from tqdm import tqdm
 import numpy as np
 
 
@@ -42,12 +41,12 @@ class TwoInputFCNN:
         dataset = TensorDataset(X_R_tensor, X_L_tensor, y_tensor)
         data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-        pbar = None
         if use_tqdm:
+            from tqdm import tqdm
             pbar = tqdm(total=epochs*len(data_loader),
                         desc="Training Progress")
-
-        step = 0
+            step = 0
+        
         for epoch in range(epochs):
             for X_R_batch, X_L_batch, y_batch in data_loader:
                 self.optimizer.zero_grad()
@@ -60,12 +59,12 @@ class TwoInputFCNN:
                 self.optimizer.step()
 
                 if use_tqdm:
-                    if step % len(data_loader) == 0:
-                        pbar.set_postfix({'loss': loss.item()})
-
                     pbar.set_description(f"Epoch {epoch}")
                     pbar.update()
-                step += 1
+                    step += 1
+            
+            if use_tqdm:
+                pbar.set_postfix({'loss': loss.item()})
 
             if save_loss:
                 self.losses.append((epoch, loss.item()))
