@@ -6,29 +6,25 @@ import numpy as np
 
 
 class TwoInputFCNN:
-    def __init__(self, input_dim, hidden_dim, output_dim, device, lr=0.001):
+    def __init__(self, input_dim, hidden_dim, output_dim, device, num_hidden_layers=2, lr=0.001):
         self.device = device
         self.lr = lr
+        self.num_hidden_layers = num_hidden_layers
         self.losses = []
 
-        self.model_R = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU()
-        ).to(self.device)
-
-        self.model_L = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU()
-        ).to(self.device)
+        self.model_R = self._create_hidden_layers(input_dim, hidden_dim, num_hidden_layers).to(self.device)
+        self.model_L = self._create_hidden_layers(input_dim, hidden_dim, num_hidden_layers).to(self.device)
 
         self.fc = nn.Linear(hidden_dim * 2, output_dim).to(self.device)
 
         self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(self.parameters(), lr=self.lr)
+
+    def _create_hidden_layers(self, input_dim, hidden_dim, num_layers):
+        layers = [nn.Linear(input_dim, hidden_dim), nn.ReLU()]
+        for _ in range(num_layers - 1):
+            layers.extend([nn.Linear(hidden_dim, hidden_dim), nn.ReLU()])
+        return nn.Sequential(*layers)
 
     def parameters(self):
         return list(self.model_R.parameters()) + list(self.model_L.parameters()) + list(self.fc.parameters())
