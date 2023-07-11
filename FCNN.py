@@ -114,7 +114,7 @@ class TwoInputFCNN:
             timestamp = now.strftime("%Y%m%d_%H%M%S")
 
             # Save the parameters and losses with a timestamp in the filename
-            with open(f'params_and_losses_{timestamp}.json', 'w') as f:
+            with open(f'results/params_and_losses_{timestamp}.json', 'w') as f:
                 json.dump(self.params, f)
 
     def predict(self, X_R, X_L):
