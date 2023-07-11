@@ -29,7 +29,7 @@ class TwoInputFCNN:
 
         self.fc = nn.Linear(hidden_dim * 2, output_dim).to(self.device)
 
-        self.criterion = nn.MSELoss()
+        self.criterion = nn.MSELoss(reduction='none')
         self.optimizer = optim.Adam(self.parameters(), lr=self.lr)
 
     def _create_hidden_layers(self, input_dim, hidden_dim, num_layers):
@@ -72,7 +72,7 @@ class TwoInputFCNN:
                 out = torch.cat((out_R, out_L), dim=1)
                 y_pred = self.fc(out)
                 loss = self.criterion(y_pred, y_batch)
-                loss.backward()
+                loss.mean().backward()
                 self.optimizer.step()
 
                 if use_tqdm:
@@ -81,20 +81,27 @@ class TwoInputFCNN:
                     step += 1
 
             if use_tqdm:
-                pbar.set_postfix({'loss': loss.item()})
+                pbar.set_postfix({'loss': loss.mean().item()})
 
             if save_loss:
                 if X_val_R is not None and X_val_L is not None and y_val is not None:
-                    # Calculate validation loss
                     with torch.no_grad():
                         out_val_R = self.model_R(X_val_R_tensor)
                         out_val_L = self.model_L(X_val_L_tensor)
                         out_val = torch.cat((out_val_R, out_val_L), dim=1)
                         y_val_pred = self.fc(out_val)
-                        val_loss = self.criterion(y_val_pred, y_val_tensor)
-                    self.losses.append((epoch, val_loss.item()))
+                        val_loss = self.criterion(
+                            y_val_pred, y_val_tensor).detach().cpu().numpy()
+
+                        # Save the per-dimension validation loss and the mean validation loss
+                        self.losses.append(
+                            (*np.mean(val_loss, axis=0).tolist(), float(np.mean(val_loss))))
                 else:
-                    self.losses.append((epoch, loss.item()))
+                    # Save the per-dimension loss and the mean loss
+                    losses = loss.detach().cpu().numpy().tolist()
+                    self.losses.append(
+                        (*np.mean(losses, axis=0).tolist(), float(np.mean(losses))))
+
 
         if use_tqdm:
             pbar.close()
