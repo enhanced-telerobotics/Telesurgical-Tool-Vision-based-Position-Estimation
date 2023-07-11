@@ -41,10 +41,18 @@ class TwoInputFCNN:
     def parameters(self):
         return list(self.model_R.parameters()) + list(self.model_L.parameters()) + list(self.fc.parameters())
 
-    def train(self, X_R, X_L, y, epochs=100, use_tqdm=True, save_loss=False):
+    def train(self, X_R, X_L, y, X_val_R=None, X_val_L=None, y_val=None, epochs=100, use_tqdm=True, save_loss=False):
         X_R_tensor = torch.tensor(X_R, dtype=torch.float32).to(self.device)
         X_L_tensor = torch.tensor(X_L, dtype=torch.float32).to(self.device)
         y_tensor = torch.tensor(y, dtype=torch.float32).to(self.device)
+
+        if X_val_R is not None and X_val_L is not None and y_val is not None:
+            X_val_R_tensor = torch.tensor(
+                X_val_R, dtype=torch.float32).to(self.device)
+            X_val_L_tensor = torch.tensor(
+                X_val_L, dtype=torch.float32).to(self.device)
+            y_val_tensor = torch.tensor(
+                y_val, dtype=torch.float32).to(self.device)
 
         dataset = TensorDataset(X_R_tensor, X_L_tensor, y_tensor)
         data_loader = DataLoader(
@@ -76,13 +84,22 @@ class TwoInputFCNN:
                 pbar.set_postfix({'loss': loss.item()})
 
             if save_loss:
-                self.losses.append((epoch, loss.item()))
+                if X_val_R is not None and X_val_L is not None and y_val is not None:
+                    # Calculate validation loss
+                    with torch.no_grad():
+                        out_val_R = self.model_R(X_val_R_tensor)
+                        out_val_L = self.model_L(X_val_L_tensor)
+                        out_val = torch.cat((out_val_R, out_val_L), dim=1)
+                        y_val_pred = self.fc(out_val)
+                        val_loss = self.criterion(y_val_pred, y_val_tensor)
+                    self.losses.append((epoch, val_loss.item()))
+                else:
+                    self.losses.append((epoch, loss.item()))
 
         if use_tqdm:
             pbar.close()
 
         if save_loss:
-            self.losses.append((epoch, loss.item()))
             self.params['losses'] = self.losses
 
             # Get the current time and format it as a string
