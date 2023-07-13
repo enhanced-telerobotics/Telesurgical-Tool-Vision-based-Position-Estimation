@@ -1,14 +1,15 @@
+import os
+import numpy as np
+import json
+from datetime import datetime
+import random
 import torch
 from torch.utils.data import TensorDataset, DataLoader
 import torch.nn as nn
 import torch.optim as optim
-import numpy as np
-import json
-from datetime import datetime
-
 
 class TwoInputFCNN:
-    def __init__(self, input_dim, hidden_dim, output_dim, device, num_hidden_layers=2, lr=0.001, batch_size=32):
+    def __init__(self, input_dim, hidden_dim, output_dim, device, num_hidden_layers=2, lr=0.001, batch_size=32, random_seed=None):
         self.device = device
         self.lr = lr
         self.num_hidden_layers = num_hidden_layers
@@ -21,6 +22,14 @@ class TwoInputFCNN:
                        'num_hidden_layers': num_hidden_layers,
                        'lr': lr,
                        'batch_size': batch_size}
+
+        # Set the random seed if it's provided
+        if random_seed is not None:
+            os.environ['PYTHONHASHSEED']=str(random_seed)
+            torch.manual_seed(random_seed)
+            torch.cuda.manual_seed(random_seed)
+            np.random.seed(random_seed)
+            random.seed(random_seed)
 
         self.model_R = self._create_hidden_layers(
             input_dim, hidden_dim, num_hidden_layers).to(self.device)
