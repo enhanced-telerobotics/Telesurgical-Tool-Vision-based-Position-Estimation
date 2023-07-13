@@ -66,6 +66,7 @@ class TwoInputFCNN:
         dataset = TensorDataset(X_R_tensor, X_L_tensor, y_tensor)
         data_loader = DataLoader(
             dataset, batch_size=self.batch_size, shuffle=True)
+        min_val_loss = float('inf')
 
         if use_tqdm:
             from tqdm import tqdm
@@ -101,15 +102,22 @@ class TwoInputFCNN:
                         y_val_pred = self.fc(out_val)
                         val_loss = self.criterion(
                             y_val_pred, y_val_tensor).detach().cpu().numpy()
+                        mean_val_loss = float(np.mean(val_loss))
+
+                        if mean_val_loss < min_val_loss:
+                            min_val_loss = mean_val_loss
+                            torch.save(self.state_dict(),
+                                       'models/best_model.pth')
 
                         # Save the per-dimension validation loss and the mean validation loss
                         self.losses.append(
-                            (*np.mean(val_loss, axis=0).tolist(), float(np.mean(val_loss))))
+                            (*np.mean(val_loss, axis=0).tolist(), mean_val_loss))
                 else:
                     # Save the per-dimension loss and the mean loss
-                    losses = loss.detach().cpu().numpy().tolist()
+                    train_loss = loss.detach().cpu().numpy()
+                    mean_train_loss = float(np.mean(train_loss))
                     self.losses.append(
-                        (*np.mean(losses, axis=0).tolist(), float(np.mean(losses))))
+                        (*np.mean(train_loss, axis=0).tolist(), mean_train_loss))
 
 
         if use_tqdm:
@@ -123,8 +131,9 @@ class TwoInputFCNN:
             timestamp = now.strftime("%Y%m%d_%H%M%S")
 
             # Save the parameters and losses with a timestamp in the filename
-            with open(f'results/params_and_losses_{timestamp}.json', 'w') as f:
+            with open(f'results/losses_{timestamp}.json', 'w') as f:
                 json.dump(self.params, f)
+            os.rename('models/best_model.pth', f'models/best_model_{timestamp}.pth')
 
     def predict(self, X_R, X_L):
         X_R_tensor = torch.tensor(X_R, dtype=torch.float32).to(self.device)
@@ -133,6 +142,20 @@ class TwoInputFCNN:
         out_L = self.model_L(X_L_tensor)
         out = torch.cat((out_R, out_L), dim=1)
         return self.fc(out).cpu().detach().numpy()
+    
+    def state_dict(self):
+        return {
+            'model_R': self.model_R.state_dict(),
+            'model_L': self.model_L.state_dict(),
+            'fc': self.fc.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+        }
+
+    def load_state_dict(self, state_dict):
+        self.model_R.load_state_dict(state_dict['model_R'])
+        self.model_L.load_state_dict(state_dict['model_L'])
+        self.fc.load_state_dict(state_dict['fc'])
+        self.optimizer.load_state_dict(state_dict['optimizer'])
 
 
 if __name__ == '__main__':
