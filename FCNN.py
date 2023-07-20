@@ -9,19 +9,27 @@ import torch.nn as nn
 import torch.optim as optim
 
 class TwoInputFCNN:
-    def __init__(self, input_dim, hidden_dim, output_dim, device, num_hidden_layers=2, lr=0.001, batch_size=32, random_seed=None):
+    def __init__(self, input_dim, hidden_dim, output_dim, device,
+                 weights=[1.0, 1.0, 1.0],
+                 num_hidden_layers=2,
+                 lr=0.001,
+                 batch_size=32,
+                 random_seed=None):
         self.device = device
-        self.lr = lr
+        self.weights = torch.tensor(weights).to(self.device)
         self.num_hidden_layers = num_hidden_layers
+        self.lr = lr
         self.batch_size = batch_size
         self.losses = []
         self.params = {'input_dim': input_dim,
                        'hidden_dim': hidden_dim,
                        'output_dim': output_dim,
                        'device': str(device),
+                       'weights': weights,
                        'num_hidden_layers': num_hidden_layers,
                        'lr': lr,
-                       'batch_size': batch_size}
+                       'batch_size': batch_size,
+                       'random_seed': random_seed}
 
         # Set the random seed if it's provided
         if random_seed is not None:
@@ -81,7 +89,7 @@ class TwoInputFCNN:
                 out_L = self.model_L(X_L_batch)
                 out = torch.cat((out_R, out_L), dim=1)
                 y_pred = self.fc(out)
-                loss = self.criterion(y_pred, y_batch)
+                loss = self.criterion(y_pred, y_batch) * self.weights
                 loss.mean().backward()
                 self.optimizer.step()
 
@@ -101,7 +109,8 @@ class TwoInputFCNN:
                         out_val = torch.cat((out_val_R, out_val_L), dim=1)
                         y_val_pred = self.fc(out_val)
                         val_loss = self.criterion(
-                            y_val_pred, y_val_tensor).detach().cpu().numpy()
+                            y_val_pred, y_val_tensor) * self.weights
+                        val_loss = val_loss.detach().cpu().numpy()
                         mean_val_loss = float(np.mean(val_loss))
 
                         if mean_val_loss < min_val_loss:
