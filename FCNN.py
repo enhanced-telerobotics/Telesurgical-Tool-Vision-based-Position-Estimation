@@ -7,13 +7,51 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader
 import torch.nn as nn
 import torch.optim as optim
+from typing import Optional, List
+
 
 class TwoInputFCNN:
-    def __init__(self, input_dim, hidden_dim, output_dim, device, num_hidden_layers=2, lr=0.001, batch_size=32, random_seed=None):
+    """
+    A Fully Connected Neural Network (FCNN) model with two inputs.
+
+    This class encapsulates the creation, training, and inference stages of a FCNN model with two inputs.
+    The model uses Mean Squared Error (MSE) as the loss function and Adam as the optimizer.
+    """
+
+    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int,
+                 device: torch.device,
+                 num_hidden_layers: int = 2,
+                 lr: float = 0.001,
+                 batch_size: int = 32,
+                 l2_reg: float = 0.0,
+                 weights: Optional[List[float]] = None,
+                 random_seed: Optional[int] = None):
+        """
+        Initialize the TwoInputFCNN model.
+
+        :param input_dim: The dimensionality of the input data.
+        :param hidden_dim: The dimensionality of the hidden layers.
+        :param output_dim: The dimensionality of the output data.
+        :param device: The device to run the model on (cpu or gpu).
+        :param num_hidden_layers: The number of hidden layers in the model.
+        :param lr: The learning rate for the optimizer.
+        :param batch_size: The batch size for training.
+        :param l2_reg: The L2 regularization strength.
+        :param weights: The weights for the output dimensions.
+        :param random_seed: The random seed for reproducibility.
+        """        
         self.device = device
-        self.lr = lr
         self.num_hidden_layers = num_hidden_layers
+        self.lr = lr
         self.batch_size = batch_size
+        self.l2_reg = l2_reg
+
+        if weights is None:
+            self.weights = torch.ones(output_dim).to(self.device)
+        else:
+            assert len(weights) == output_dim, "Length of weights must be equal to output_dim"
+            self.weights = torch.tensor(weights).to(self.device)
+
         self.losses = []
         self.params = {'input_dim': input_dim,
                        'hidden_dim': hidden_dim,
@@ -21,7 +59,10 @@ class TwoInputFCNN:
                        'device': str(device),
                        'num_hidden_layers': num_hidden_layers,
                        'lr': lr,
-                       'batch_size': batch_size}
+                       'batch_size': batch_size,
+                       'l2_reg': l2_reg,
+                       'weights': weights,
+                       'random_seed': random_seed}
 
         # Set the random seed if it's provided
         if random_seed is not None:
@@ -39,18 +80,44 @@ class TwoInputFCNN:
         self.fc = nn.Linear(hidden_dim * 2, output_dim).to(self.device)
 
         self.criterion = nn.MSELoss(reduction='none')
-        self.optimizer = optim.Adam(self.parameters(), lr=self.lr)
+        self.optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=l2_reg)
 
     def _create_hidden_layers(self, input_dim, hidden_dim, num_layers):
+        """
+        Create the hidden layers for the model.
+
+        :param input_dim: The dimensionality of the input data.
+        :param hidden_dim: The dimensionality of the hidden layers.
+        :param num_layers: The number of hidden layers.
+        :return: A Sequential model containing the hidden layers.
+        """
         layers = [nn.Linear(input_dim, hidden_dim), nn.ReLU()]
         for _ in range(num_layers - 1):
             layers.extend([nn.Linear(hidden_dim, hidden_dim), nn.ReLU()])
         return nn.Sequential(*layers)
 
     def parameters(self):
+        """
+        Get the parameters of the model.
+
+        :return: The parameters of the model.
+        """
         return list(self.model_R.parameters()) + list(self.model_L.parameters()) + list(self.fc.parameters())
 
     def train(self, X_R, X_L, y, X_val_R=None, X_val_L=None, y_val=None, epochs=100, use_tqdm=True, save_loss=False):
+        """
+        Train the model.
+
+        :param X_R: The right input data for training.
+        :param X_L: The left input data for training.
+        :param y: The output data for training.
+        :param X_val_R: The right input data for validation.
+        :param X_val_L: The left input data for validation.
+        :param y_val: The output data for validation.
+        :param epochs: The number of epochs to train for.
+        :param use_tqdm: Whether to use tqdm for progress bar.
+        :param save_loss: Whether to save the loss.
+        """
         X_R_tensor = torch.tensor(X_R, dtype=torch.float32).to(self.device)
         X_L_tensor = torch.tensor(X_L, dtype=torch.float32).to(self.device)
         y_tensor = torch.tensor(y, dtype=torch.float32).to(self.device)
@@ -81,7 +148,7 @@ class TwoInputFCNN:
                 out_L = self.model_L(X_L_batch)
                 out = torch.cat((out_R, out_L), dim=1)
                 y_pred = self.fc(out)
-                loss = self.criterion(y_pred, y_batch)
+                loss = self.criterion(y_pred, y_batch) * self.weights
                 loss.mean().backward()
                 self.optimizer.step()
 
@@ -101,7 +168,8 @@ class TwoInputFCNN:
                         out_val = torch.cat((out_val_R, out_val_L), dim=1)
                         y_val_pred = self.fc(out_val)
                         val_loss = self.criterion(
-                            y_val_pred, y_val_tensor).detach().cpu().numpy()
+                            y_val_pred, y_val_tensor) * self.weights
+                        val_loss = val_loss.detach().cpu().numpy()
                         mean_val_loss = float(np.mean(val_loss))
 
                         if mean_val_loss < min_val_loss:
@@ -136,6 +204,13 @@ class TwoInputFCNN:
             os.rename('models/best_model.pth', f'models/best_model_{timestamp}.pth')
 
     def predict(self, X_R, X_L):
+        """
+        Predict the output given the input data.
+
+        :param X_R: The right input data.
+        :param X_L: The left input data.
+        :return: The predicted output data.
+        """
         X_R_tensor = torch.tensor(X_R, dtype=torch.float32).to(self.device)
         X_L_tensor = torch.tensor(X_L, dtype=torch.float32).to(self.device)
         out_R = self.model_R(X_R_tensor)
@@ -144,6 +219,11 @@ class TwoInputFCNN:
         return self.fc(out).cpu().detach().numpy()
     
     def state_dict(self):
+        """
+        Get the state dict of the model.
+
+        :return: The state dict of the model.
+        """
         return {
             'model_R': self.model_R.state_dict(),
             'model_L': self.model_L.state_dict(),
@@ -152,6 +232,11 @@ class TwoInputFCNN:
         }
 
     def load_state_dict(self, state_dict):
+        """
+        Load the state dict into the model.
+
+        :param state_dict: The state dict to load.
+        """
         self.model_R.load_state_dict(state_dict['model_R'])
         self.model_L.load_state_dict(state_dict['model_L'])
         self.fc.load_state_dict(state_dict['fc'])
@@ -159,6 +244,7 @@ class TwoInputFCNN:
 
 
 if __name__ == '__main__':
+    # Sample usage:
     pass
     # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # net = TwoInputFCNN(input_dim=32, hidden_dim=64, output_dim=3, device=device)  # changed output_dim to 3
