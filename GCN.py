@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
 import json
+import numpy as np
 import torch
 from torch_geometric.nn import GCNConv
 from torch_geometric.data import Data
@@ -98,9 +99,9 @@ class GraphModel:
                           for i in range(X_test.shape[0])]
         test_loader = DataLoader(test_data_list, batch_size=1)
 
-        predictions = []
+        predictions = np.zeros((0, 3))
         with torch.no_grad():
             for data in test_loader:
                 pred = self.model(data)
-                predictions.append(pred)
+                predictions = np.vstack((predictions, pred.cpu().numpy()))
         return predictions
