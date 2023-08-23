@@ -13,11 +13,12 @@ from typing import Optional, List
 
 
 class StaticGCN(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, 
+    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int, 
                  device: torch.device, 
                  batch_size: int = 32, 
                  l2_reg: float = 0.0,
                  lr: float = 0.001, 
+                 weights: Optional[List[float]] = None,
                  random_seed: Optional[int] = None):
         super(StaticGCN, self).__init__()
 
@@ -25,6 +26,12 @@ class StaticGCN(torch.nn.Module):
         self.lr = lr
         self.batch_size = batch_size
         self.l2_reg = l2_reg
+
+        if weights is None:
+            self.weights = torch.ones(output_dim).to(self.device)
+        else:
+            assert len(weights) == output_dim, "Length of weights must be equal to output_dim"
+            self.weights = torch.tensor(weights).to(self.device)
         
         # GCN layers
         self.conv1 = GCNConv(input_dim, hidden_dim)
@@ -32,7 +39,7 @@ class StaticGCN(torch.nn.Module):
         
         # Model utilities
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=l2_reg)
-        self.criterion = torch.nn.MSELoss()
+        self.criterion = torch.nn.MSELoss(reduction='none')
         self.device = device
         self.losses = []
 
@@ -44,6 +51,7 @@ class StaticGCN(torch.nn.Module):
                        'lr': lr,
                        'batch_size': batch_size,
                        'l2_reg': l2_reg,
+                       'weights': weights,
                        'random_seed': random_seed}
         
         self.to(device)
@@ -66,40 +74,68 @@ class StaticGCN(torch.nn.Module):
         x = global_mean_pool(x, batch=data.batch)
         return x
 
-    def train(self, X_train, edge_index, y_train, epochs, use_tqdm=True, save_loss=False):
+    def train(self, X_train, edge_index, y_train, X_val=None, y_val=None, epochs=100, use_tqdm=True, save_loss=False):
         super().train()
 
-        # Data preparation
-        X_train = torch.tensor(X_train, dtype=torch.float).to(self.device)
-        edge_index = torch.tensor(edge_index, dtype=torch.long).to(self.device)
-        y_train = torch.tensor(y_train, dtype=torch.float).to(self.device)
-        data_list = [Data(x=X_train[i], edge_index=edge_index, y=y_train[i].unsqueeze(0))
-                     for i in range(X_train.shape[0])]
-        loader = DataLoader(data_list, batch_size=self.batch_size, shuffle=True)
+        # Data preparation for training
+        X_train = torch.tensor(X_train, dtype=torch.float)
+        edge_index = torch.tensor(edge_index, dtype=torch.long)
+        y_train = torch.tensor(y_train, dtype=torch.float)
+        train_data_list = [Data(x=X_train[i], edge_index=edge_index, y=y_train[i].unsqueeze(
+            0)) for i in range(X_train.shape[0])]
+        loader = DataLoader(
+            train_data_list, batch_size=self.batch_size, shuffle=True, pin_memory=True)
+
+        # Data preparation for validation if provided
+        if X_val is not None and y_val is not None:
+                X_val = torch.tensor(X_val, dtype=torch.float)
+                y_val = torch.tensor(y_val, dtype=torch.float)
+                val_data_list = [Data(x=X_val[i], edge_index=edge_index, y=y_val[i].unsqueeze(
+                    0)) for i in range(X_val.shape[0])]
+                val_loader = DataLoader(val_data_list, batch_size=self.batch_size * 100)
 
         if use_tqdm:
             from tqdm import tqdm
-            pbar = tqdm(range(epochs), desc="Training Progress")
-        else:
-            pbar = range(epochs)
+            pbar = tqdm(total=epochs*len(loader),
+                        desc="Training Progress")
 
-        best_loss = float('inf')
-        for epoch in pbar:
+        min_loss = float('inf')
+        for epoch in range(epochs):
             for data in loader:
+                data = data.to(self.device)
                 self.optimizer.zero_grad()
                 out = self(data)
-                loss = self.criterion(out, data.y)
-                loss.backward()
+                loss = self.criterion(out, data.y) * self.weights
+                loss.mean().backward()
                 self.optimizer.step()
 
+                if use_tqdm:
+                    pbar.set_description(f"Epoch {epoch}")
+                    pbar.update()
+            
             if use_tqdm:
-                pbar.set_description(f"Epoch {epoch}")
-                pbar.set_postfix({'loss': loss.item()})
+                pbar.set_postfix({'loss': loss.mean().item()})
 
             if save_loss:
-                self.losses.append(loss.item())
-                if loss.item() < best_loss:
-                    best_loss = loss.item()
+                if X_val is not None and y_val is not None:
+                    val_losses = np.zeros((0, y_val.shape[1]))
+                    for val_data in val_loader:
+                        val_data = val_data.to(self.device)
+                        with torch.no_grad():
+                            val_out = self(val_data)
+                            val_loss = self.criterion(val_out, val_data.y) * self.weights
+                            val_loss = np.mean(val_loss.detach().cpu().numpy(), axis=0)
+                            val_losses = np.vstack((val_losses, val_loss))
+                    losses = np.mean(val_losses, axis=0)
+                    mean_loss = np.mean(losses)
+                else:
+                    losses = np.mean(loss.detach().cpu().numpy(), axis=0) * self.weights
+                    mean_loss = np.mean(losses)
+
+
+                self.losses.append((*losses.tolist(), mean_loss))
+                if mean_loss < min_loss:
+                    min_loss = mean_loss
                     torch.save(self.state_dict(), 'models/best_model.pth')
 
         if use_tqdm:
@@ -117,20 +153,20 @@ class StaticGCN(torch.nn.Module):
                 json.dump(self.params, f)
             os.rename('models/best_model.pth', f'models/best_model_{timestamp}.pth')
 
-    def predict(self, X_test, edge_index_test, y_test):
+    def predict(self, X_test, edge_index, y_test):
         super().train(False)
-        X_test = torch.tensor(X_test, dtype=torch.float).to(self.device)
-        edge_index_test = torch.tensor(
-            edge_index_test, dtype=torch.long).to(self.device)
-        y_test = torch.tensor(y_test, dtype=torch.float).to(self.device)
+        X_test = torch.tensor(X_test, dtype=torch.float)
+        edge_index = torch.tensor(edge_index, dtype=torch.long)
+        y_test = torch.tensor(y_test, dtype=torch.float)
 
-        test_data_list = [Data(x=X_test[i], edge_index=edge_index_test, y=y_test[i])
+        test_data_list = [Data(x=X_test[i], edge_index=edge_index, y=y_test[i])
                           for i in range(X_test.shape[0])]
-        test_loader = DataLoader(test_data_list, batch_size=1)
+        test_loader = DataLoader(test_data_list, batch_size=1, pin_memory=True)
 
         predictions = np.zeros((0, 3))
         with torch.no_grad():
             for data in test_loader:
+                data = data.to(self.device)
                 pred = self(data)
                 predictions = np.vstack((predictions, pred.cpu().numpy()))
         return predictions
