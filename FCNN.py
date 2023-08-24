@@ -53,7 +53,8 @@ class TwoInputFCNN:
             self.weights = torch.tensor(weights).to(self.device)
 
         self.losses = []
-        self.params = {'input_dim': input_dim,
+        self.params = {'model': 'FCNN',
+                       'input_dim': input_dim,
                        'hidden_dim': hidden_dim,
                        'output_dim': output_dim,
                        'device': str(device),
@@ -118,9 +119,9 @@ class TwoInputFCNN:
         :param use_tqdm: Whether to use tqdm for progress bar.
         :param save_loss: Whether to save the loss.
         """
-        X_R_tensor = torch.tensor(X_R, dtype=torch.float32).to(self.device)
-        X_L_tensor = torch.tensor(X_L, dtype=torch.float32).to(self.device)
-        y_tensor = torch.tensor(y, dtype=torch.float32).to(self.device)
+        X_R_tensor = torch.tensor(X_R, dtype=torch.float32)
+        X_L_tensor = torch.tensor(X_L, dtype=torch.float32)
+        y_tensor = torch.tensor(y, dtype=torch.float32)
 
         if X_val_R is not None and X_val_L is not None and y_val is not None:
             X_val_R_tensor = torch.tensor(
@@ -132,8 +133,8 @@ class TwoInputFCNN:
 
         dataset = TensorDataset(X_R_tensor, X_L_tensor, y_tensor)
         data_loader = DataLoader(
-            dataset, batch_size=self.batch_size, shuffle=True)
-        min_val_loss = float('inf')
+            dataset, batch_size=self.batch_size, shuffle=True, pin_memory=True)
+        min_loss = float('inf')
 
         if use_tqdm:
             from tqdm import tqdm
@@ -143,6 +144,9 @@ class TwoInputFCNN:
 
         for epoch in range(epochs):
             for X_R_batch, X_L_batch, y_batch in data_loader:
+                X_R_batch = X_R_batch.to(self.device)
+                X_L_batch = X_L_batch.to(self.device)
+                y_batch = y_batch.to(self.device)
                 self.optimizer.zero_grad()
                 out_R = self.model_R(X_R_batch)
                 out_L = self.model_L(X_L_batch)
@@ -172,8 +176,8 @@ class TwoInputFCNN:
                         val_loss = val_loss.detach().cpu().numpy()
                         mean_val_loss = float(np.mean(val_loss))
 
-                        if mean_val_loss < min_val_loss:
-                            min_val_loss = mean_val_loss
+                        if mean_val_loss < min_loss:
+                            min_loss = mean_val_loss
                             torch.save(self.state_dict(),
                                        'models/best_model.pth')
 
