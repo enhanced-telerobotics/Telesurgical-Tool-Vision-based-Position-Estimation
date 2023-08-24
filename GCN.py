@@ -4,10 +4,11 @@ import json
 import numpy as np
 import random
 import torch
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GCNConv, SAGEConv
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import StepLR
 from torch_geometric.nn import global_mean_pool
 from typing import Optional, List
 
@@ -35,10 +36,13 @@ class StaticGCN(torch.nn.Module):
         
         # GCN layers
         self.conv1 = GCNConv(input_dim, hidden_dim)
-        self.conv2 = GCNConv(hidden_dim, output_dim)
+        self.conv2 = SAGEConv(hidden_dim, hidden_dim)
+        self.conv3 = SAGEConv(hidden_dim, hidden_dim)
+        self.fc = torch.nn.Linear(hidden_dim, output_dim)
         
         # Model utilities
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=l2_reg)
+        self.scheduler = StepLR(self.optimizer, step_size=100, gamma=0.1)
         self.criterion = torch.nn.MSELoss(reduction='none')
         self.device = device
         self.losses = []
@@ -70,6 +74,13 @@ class StaticGCN(torch.nn.Module):
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
         x = self.conv2(x, edge_index)
+        x = F.relu(x)
+        x = F.dropout(x, training=self.training)
+        x = self.conv3(x, edge_index)  # Forward through second SAGEConv layer
+        x = F.relu(x)
+        x = F.dropout(x, training=self.training)
+        x = self.fc(x)
+        
         # Global mean pooling
         x = global_mean_pool(x, batch=data.batch)
         return x
@@ -92,7 +103,7 @@ class StaticGCN(torch.nn.Module):
                 y_val = torch.tensor(y_val, dtype=torch.float)
                 val_data_list = [Data(x=X_val[i], edge_index=edge_index, y=y_val[i].unsqueeze(
                     0)) for i in range(X_val.shape[0])]
-                val_loader = DataLoader(val_data_list, batch_size=self.batch_size * 100)
+                val_loader = DataLoader(val_data_list, batch_size=self.batch_size * 10)
 
         if use_tqdm:
             from tqdm import tqdm
@@ -108,6 +119,7 @@ class StaticGCN(torch.nn.Module):
                 loss = self.criterion(out, data.y) * self.weights
                 loss.mean().backward()
                 self.optimizer.step()
+                self.scheduler.step()
 
                 if use_tqdm:
                     pbar.set_description(f"Epoch {epoch}")
