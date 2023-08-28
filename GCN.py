@@ -14,6 +14,23 @@ from typing import Optional, List
 
 
 class StaticGCN(torch.nn.Module):
+    """
+    A Graph Convolutional Network (GCN) model with static features.
+
+    This class encapsulates the creation, training, and inference stages of a GCN model. The model
+    uses Mean Squared Error (MSE) as the loss function and Adam as the optimizer. It is specifically
+    designed for static features on nodes.
+
+    Attributes:
+        device: The device to run the model on (cpu or gpu).
+        lr: Learning rate for the optimizer.
+        batch_size: Batch size for training.
+        l2_reg: L2 regularization strength.
+        weights: Weights for the output dimensions.
+        params: A dictionary storing various hyperparameters and configurations.
+        losses: A list to store training losses for each epoch.
+    """
+
     def __init__(self, input_dim: int, hidden_dim: int, output_dim: int, 
                  device: torch.device, 
                  batch_size: int = 32, 
@@ -22,6 +39,21 @@ class StaticGCN(torch.nn.Module):
                  weights: Optional[List[float]] = None,
                  random_seed: Optional[int] = None,
                  message: Optional[str] = None):
+        """
+        Initialize the StaticGCN model.
+
+        Args:
+            input_dim (int): Dimensionality of the input features.
+            hidden_dim (int): Dimensionality of the hidden layers.
+            output_dim (int): Dimensionality of the output layer.
+            device (torch.device): Device to run the model on (e.g., 'cuda' or 'cpu').
+            batch_size (int, optional): Batch size for training. Defaults to 32.
+            l2_reg (float, optional): L2 regularization strength. Defaults to 0.0.
+            lr (float, optional): Learning rate for the optimizer. Defaults to 0.001.
+            weights (Optional[List[float]], optional): Weights for the output dimensions. Defaults to None.
+            random_seed (Optional[int], optional): Random seed for reproducibility. Defaults to None.
+            message (Optional[str], optional): Custom message for the model. Defaults to None.
+        """
         super(StaticGCN, self).__init__()
 
         self.device = device
@@ -72,6 +104,15 @@ class StaticGCN(torch.nn.Module):
             random.seed(random_seed)
 
     def forward(self, data):
+        """
+        Forward pass of the StaticGCN model.
+
+        Args:
+            data (torch_geometric.data.Data): Input data containing node features and edge index.
+
+        Returns:
+            torch.Tensor: Output tensor after passing through the network.
+        """
         x, edge_index = data.x.to(self.device), data.edge_index.to(self.device)
         x = self.conv1(x, edge_index)
         x = F.relu(x)
@@ -89,6 +130,19 @@ class StaticGCN(torch.nn.Module):
         return x
 
     def train(self, X_train, edge_index, y_train, X_val=None, y_val=None, epochs=100, use_tqdm=True, save_loss=False):
+        """
+        Train the StaticGCN model.
+
+        Args:
+            X_train (np.array): Training node features.
+            edge_index (np.array): Edge index for training graph.
+            y_train (np.array): Training target values.
+            X_val (Optional[np.array], optional): Validation node features. Defaults to None.
+            y_val (Optional[np.array], optional): Validation target values. Defaults to None.
+            epochs (int, optional): Number of training epochs. Defaults to 100.
+            use_tqdm (bool, optional): Whether to display a tqdm progress bar. Defaults to True.
+            save_loss (bool, optional): Whether to save the training loss. Defaults to False.
+        """
         super().train()
 
         # Data preparation for training
@@ -169,6 +223,17 @@ class StaticGCN(torch.nn.Module):
             os.rename('models/best_model.pth', f'models/best_model_{timestamp}.pth')
 
     def predict(self, X_test, edge_index, y_test):
+        """
+        Predict with the trained StaticGCN model.
+
+        Args:
+            X_test (np.array): Test node features.
+            edge_index (np.array): Edge index for test graph.
+            y_test (np.array): Test target values.
+
+        Returns:
+            np.array: Predicted values for the test data.
+        """
         super().train(False)
         X_test = torch.tensor(X_test, dtype=torch.float)
         edge_index = torch.tensor(edge_index, dtype=torch.long)
