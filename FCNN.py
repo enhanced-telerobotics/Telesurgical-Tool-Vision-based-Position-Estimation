@@ -25,7 +25,8 @@ class TwoInputFCNN:
                  batch_size: int = 32,
                  l2_reg: float = 0.0,
                  weights: Optional[List[float]] = None,
-                 random_seed: Optional[int] = None):
+                 random_seed: Optional[int] = None,
+                 message: Optional[str] = None):
         """
         Initialize the TwoInputFCNN model.
 
@@ -39,6 +40,7 @@ class TwoInputFCNN:
         :param l2_reg: The L2 regularization strength.
         :param weights: The weights for the output dimensions.
         :param random_seed: The random seed for reproducibility.
+        :param message: Custom message for the model. Defaults to None.
         """        
         self.device = device
         self.num_hidden_layers = num_hidden_layers
@@ -63,7 +65,8 @@ class TwoInputFCNN:
                        'batch_size': batch_size,
                        'l2_reg': l2_reg,
                        'weights': weights,
-                       'random_seed': random_seed}
+                       'random_seed': random_seed,
+                       'message': message}
 
         # Set the random seed if it's provided
         if random_seed is not None:
