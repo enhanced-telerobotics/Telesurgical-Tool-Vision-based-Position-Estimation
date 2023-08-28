@@ -20,7 +20,8 @@ class StaticGCN(torch.nn.Module):
                  l2_reg: float = 0.0,
                  lr: float = 0.001, 
                  weights: Optional[List[float]] = None,
-                 random_seed: Optional[int] = None):
+                 random_seed: Optional[int] = None,
+                 message: Optional[str] = None):
         super(StaticGCN, self).__init__()
 
         self.device = device
@@ -52,11 +53,13 @@ class StaticGCN(torch.nn.Module):
                        'hidden_dim': hidden_dim,
                        'output_dim': output_dim,
                        'device': str(device),
+                       'num_hidden_layers': 2,
                        'lr': lr,
                        'batch_size': batch_size,
                        'l2_reg': l2_reg,
                        'weights': weights,
-                       'random_seed': random_seed}
+                       'random_seed': random_seed,
+                       'message': message}
         
         self.to(device)
         
