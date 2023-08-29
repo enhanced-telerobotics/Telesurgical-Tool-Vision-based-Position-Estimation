@@ -192,13 +192,13 @@ class StaticGCN(torch.nn.Module):
                         val_data = val_data.to(self.device)
                         with torch.no_grad():
                             val_out = self(val_data)
-                            val_loss = self.criterion(val_out, val_data.y) * self.weights
+                            val_loss = self.criterion(val_out, val_data.y)
                             val_loss = np.mean(val_loss.detach().cpu().numpy(), axis=0)
                             val_losses = np.vstack((val_losses, val_loss))
                     losses = np.mean(val_losses, axis=0)
                     mean_loss = np.mean(losses)
                 else:
-                    losses = np.mean(loss.detach().cpu().numpy(), axis=0) * self.weights
+                    losses = np.mean(loss.detach().cpu().numpy(), axis=0)
                     mean_loss = np.mean(losses)
 
 

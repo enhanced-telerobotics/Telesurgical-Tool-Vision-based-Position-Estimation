@@ -175,7 +175,7 @@ class TwoInputFCNN:
                         out_val = torch.cat((out_val_R, out_val_L), dim=1)
                         y_val_pred = self.fc(out_val)
                         val_loss = self.criterion(
-                            y_val_pred, y_val_tensor) * self.weights
+                            y_val_pred, y_val_tensor)
                         val_loss = val_loss.detach().cpu().numpy()
                         mean_val_loss = float(np.mean(val_loss))
 
