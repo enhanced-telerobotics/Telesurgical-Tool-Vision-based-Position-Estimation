@@ -33,6 +33,7 @@ class StaticGCN(torch.nn.Module):
 
     def __init__(self, input_dim: int, hidden_dim: int, output_dim: int, 
                  device: torch.device, 
+                 num_hidden_layers: int = 2,
                  batch_size: int = 32, 
                  l2_reg: float = 0.0,
                  lr: float = 0.001, 
@@ -57,6 +58,7 @@ class StaticGCN(torch.nn.Module):
         super(StaticGCN, self).__init__()
 
         self.device = device
+        self.num_hidden_layers = num_hidden_layers
         self.lr = lr
         self.batch_size = batch_size
         self.l2_reg = l2_reg
@@ -67,15 +69,19 @@ class StaticGCN(torch.nn.Module):
             assert len(weights) == output_dim, "Length of weights must be equal to output_dim"
             self.weights = torch.tensor(weights).to(self.device)
         
-        # GCN layers
-        self.conv1 = GCNConv(input_dim, hidden_dim)
-        self.conv2 = SAGEConv(hidden_dim, hidden_dim)
-        self.conv3 = SAGEConv(hidden_dim, hidden_dim)
+        # layers
+        self.convs = torch.nn.ModuleList([SAGEConv(input_dim, hidden_dim)])
+        for _ in range(num_hidden_layers):
+            self.convs.append(SAGEConv(hidden_dim, hidden_dim))
         self.fc = torch.nn.Linear(hidden_dim, output_dim)
+
+        self.aux_fc1 = torch.nn.Linear(2, hidden_dim)
+        self.aux_fc2 = torch.nn.Linear(hidden_dim, hidden_dim)
+        self.aux_fc_out = torch.nn.Linear(hidden_dim, 1)
         
         # Model utilities
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=l2_reg)
-        self.scheduler = StepLR(self.optimizer, step_size=100, gamma=0.1)
+        self.scheduler = StepLR(self.optimizer, step_size=20, gamma=0.5)
         self.criterion = torch.nn.MSELoss(reduction='none')
         self.device = device
         self.losses = []
@@ -85,7 +91,7 @@ class StaticGCN(torch.nn.Module):
                        'hidden_dim': hidden_dim,
                        'output_dim': output_dim,
                        'device': str(device),
-                       'num_hidden_layers': 2,
+                       'num_hidden_layers': num_hidden_layers,
                        'lr': lr,
                        'batch_size': batch_size,
                        'l2_reg': l2_reg,
@@ -104,29 +110,29 @@ class StaticGCN(torch.nn.Module):
             random.seed(random_seed)
 
     def forward(self, data):
-        """
-        Forward pass of the StaticGCN model.
-
-        Args:
-            data (torch_geometric.data.Data): Input data containing node features and edge index.
-
-        Returns:
-            torch.Tensor: Output tensor after passing through the network.
-        """
         x, edge_index = data.x.to(self.device), data.edge_index.to(self.device)
-        x = self.conv1(x, edge_index)
-        x = F.relu(x)
-        x = F.dropout(x, training=self.training)
-        x = self.conv2(x, edge_index)
-        x = F.relu(x)
-        x = F.dropout(x, training=self.training)
-        x = self.conv3(x, edge_index)  # Forward through second SAGEConv layer
-        x = F.relu(x)
-        x = F.dropout(x, training=self.training)
-        x = self.fc(x)
+
+        for conv in self.convs:
+            x = conv(x, edge_index)
+            x = F.relu(x)
+            x = F.dropout(x, training=self.training)
+
+        # Using the main fc for dimensions 1 and 3
+        main_out = self.fc(x)
+        dim1, dim3 = main_out[:, 0], main_out[:, 2]
+
+        # Extracting dim1 and dim3 to use as input for aux_fc
+        aux_input = torch.stack([dim1, dim3], dim=-1)
         
-        # Global mean pooling
-        x = global_mean_pool(x, batch=data.batch)
+        # Pass through the more complex aux_fc network
+        aux_hidden1 = F.relu(self.aux_fc1(aux_input))
+        aux_hidden2 = F.relu(self.aux_fc2(aux_hidden1))
+        aux_out = self.aux_fc_out(aux_hidden2).squeeze(-1)
+
+        # Concatenate results
+        final_out = torch.stack([dim1, aux_out, dim3], dim=-1)
+        
+        x = global_mean_pool(final_out, batch=data.batch)
         return x
 
     def train(self, X_train, edge_index, y_train, X_val=None, y_val=None, epochs=100, use_tqdm=True, save_loss=False):
@@ -192,13 +198,13 @@ class StaticGCN(torch.nn.Module):
                         val_data = val_data.to(self.device)
                         with torch.no_grad():
                             val_out = self(val_data)
-                            val_loss = self.criterion(val_out, val_data.y)
+                            val_loss = self.criterion(val_out, val_data.y) * self.weights
                             val_loss = np.mean(val_loss.detach().cpu().numpy(), axis=0)
                             val_losses = np.vstack((val_losses, val_loss))
                     losses = np.mean(val_losses, axis=0)
                     mean_loss = np.mean(losses)
                 else:
-                    losses = np.mean(loss.detach().cpu().numpy(), axis=0)
+                    losses = np.mean(loss.detach().cpu().numpy(), axis=0) * self.weights
                     mean_loss = np.mean(losses)
 
 
