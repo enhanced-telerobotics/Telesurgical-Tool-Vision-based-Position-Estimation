@@ -177,22 +177,19 @@ class TwoInputFCNN:
                         val_loss = self.criterion(
                             y_val_pred, y_val_tensor)
                         val_loss = val_loss.detach().cpu().numpy()
-                        mean_val_loss = float(np.mean(val_loss))
+                        losses = np.mean(val_loss, axis=0)
+                        mean_loss = float(np.mean(losses))
 
-                        if mean_val_loss < min_loss:
-                            min_loss = mean_val_loss
-                            torch.save(self.state_dict(),
-                                       'models/best_model.pth')
-
-                        # Save the per-dimension validation loss and the mean validation loss
-                        self.losses.append(
-                            (*np.mean(val_loss, axis=0).tolist(), mean_val_loss))
                 else:
                     # Save the per-dimension loss and the mean loss
                     train_loss = loss.detach().cpu().numpy()
-                    mean_train_loss = float(np.mean(train_loss))
-                    self.losses.append(
-                        (*np.mean(train_loss, axis=0).tolist(), mean_train_loss))
+                    losses = np.mean(train_loss, axis=0)
+                    mean_loss = float(np.mean(losses))
+                    
+                self.losses.append((*losses.tolist(), mean_loss))
+                if mean_loss < min_loss:
+                    min_loss = mean_loss
+                    torch.save(self.state_dict(), 'models/best_model.pth')
 
 
         if use_tqdm:
