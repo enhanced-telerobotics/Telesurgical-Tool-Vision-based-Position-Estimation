@@ -13,11 +13,11 @@ from torch_geometric.nn import global_mean_pool
 from typing import Optional, List
 
 
-class StaticGCN(torch.nn.Module):
+class StaticGNN(torch.nn.Module):
     """
-    A Graph Convolutional Network (GCN) model with static features.
+    A Graph Convolutional Network (GNN) model with static features.
 
-    This class encapsulates the creation, training, and inference stages of a GCN model. The model
+    This class encapsulates the creation, training, and inference stages of a GNN model. The model
     uses Mean Squared Error (MSE) as the loss function and Adam as the optimizer. It is specifically
     designed for static features on nodes.
 
@@ -41,7 +41,7 @@ class StaticGCN(torch.nn.Module):
                  random_seed: Optional[int] = None,
                  message: Optional[str] = None):
         """
-        Initialize the StaticGCN model.
+        Initialize the StaticGNN model.
 
         Args:
             input_dim (int): Dimensionality of the input features.
@@ -55,7 +55,7 @@ class StaticGCN(torch.nn.Module):
             random_seed (Optional[int], optional): Random seed for reproducibility. Defaults to None.
             message (Optional[str], optional): Custom message for the model. Defaults to None.
         """
-        super(StaticGCN, self).__init__()
+        super(StaticGNN, self).__init__()
 
         self.device = device
         self.num_hidden_layers = num_hidden_layers
@@ -86,7 +86,7 @@ class StaticGCN(torch.nn.Module):
         self.device = device
         self.losses = []
 
-        self.params = {'model': 'GCN',
+        self.params = {'model': 'GNN',
                        'input_dim': input_dim,
                        'hidden_dim': hidden_dim,
                        'output_dim': output_dim,
@@ -117,27 +117,14 @@ class StaticGCN(torch.nn.Module):
             x = F.relu(x)
             x = F.dropout(x, training=self.training)
 
-        # Using the main fc for dimensions 1 and 3
-        main_out = self.fc(x)
-        dim1, dim3 = main_out[:, 0], main_out[:, 2]
-
-        # Extracting dim1 and dim3 to use as input for aux_fc
-        aux_input = torch.stack([dim1, dim3], dim=-1)
+        x = self.fc(x)
         
-        # Pass through the more complex aux_fc network
-        aux_hidden1 = F.relu(self.aux_fc1(aux_input))
-        aux_hidden2 = F.relu(self.aux_fc2(aux_hidden1))
-        aux_out = self.aux_fc_out(aux_hidden2).squeeze(-1)
-
-        # Concatenate results
-        final_out = torch.stack([dim1, aux_out, dim3], dim=-1)
-        
-        x = global_mean_pool(final_out, batch=data.batch)
+        x = global_mean_pool(x, batch=data.batch)
         return x
 
     def train(self, X_train, edge_index, y_train, X_val=None, y_val=None, epochs=100, use_tqdm=True, save_loss=False):
         """
-        Train the StaticGCN model.
+        Train the StaticGNN model.
 
         Args:
             X_train (np.array): Training node features.
@@ -230,7 +217,7 @@ class StaticGCN(torch.nn.Module):
 
     def predict(self, X_test, edge_index, y_test):
         """
-        Predict with the trained StaticGCN model.
+        Predict with the trained StaticGNN model.
 
         Args:
             X_test (np.array): Test node features.
