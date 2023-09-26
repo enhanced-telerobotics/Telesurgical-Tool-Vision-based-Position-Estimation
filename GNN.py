@@ -8,16 +8,15 @@ from torch_geometric.nn import GCNConv, SAGEConv
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import torch.nn.functional as F
-from torch.optim.lr_scheduler import StepLR
 from torch_geometric.nn import global_mean_pool
 from typing import Optional, List
 
 
-class StaticGCN(torch.nn.Module):
+class StaticGNN(torch.nn.Module):
     """
-    A Graph Convolutional Network (GCN) model with static features.
+    A Graph Convolutional Network (GNN) model with static features.
 
-    This class encapsulates the creation, training, and inference stages of a GCN model. The model
+    This class encapsulates the creation, training, and inference stages of a GNN model. The model
     uses Mean Squared Error (MSE) as the loss function and Adam as the optimizer. It is specifically
     designed for static features on nodes.
 
@@ -33,7 +32,7 @@ class StaticGCN(torch.nn.Module):
 
     def __init__(self, input_dim: int, hidden_dim: int, output_dim: int, 
                  device: torch.device, 
-                 num_hidden_layers: int = 2,
+                 num_hidden_layers: int = 1,
                  batch_size: int = 32, 
                  l2_reg: float = 0.0,
                  lr: float = 0.001, 
@@ -41,7 +40,7 @@ class StaticGCN(torch.nn.Module):
                  random_seed: Optional[int] = None,
                  message: Optional[str] = None):
         """
-        Initialize the StaticGCN model.
+        Initialize the StaticGNN model.
 
         Args:
             input_dim (int): Dimensionality of the input features.
@@ -55,7 +54,7 @@ class StaticGCN(torch.nn.Module):
             random_seed (Optional[int], optional): Random seed for reproducibility. Defaults to None.
             message (Optional[str], optional): Custom message for the model. Defaults to None.
         """
-        super(StaticGCN, self).__init__()
+        super(StaticGNN, self).__init__()
 
         self.device = device
         self.num_hidden_layers = num_hidden_layers
@@ -72,21 +71,18 @@ class StaticGCN(torch.nn.Module):
         # layers
         self.convs = torch.nn.ModuleList([SAGEConv(input_dim, hidden_dim)])
         for _ in range(num_hidden_layers):
+            self.convs.append(torch.nn.Linear(hidden_dim, hidden_dim))
             self.convs.append(SAGEConv(hidden_dim, hidden_dim))
         self.fc = torch.nn.Linear(hidden_dim, output_dim)
-
-        self.aux_fc1 = torch.nn.Linear(2, hidden_dim)
-        self.aux_fc2 = torch.nn.Linear(hidden_dim, hidden_dim)
-        self.aux_fc_out = torch.nn.Linear(hidden_dim, 1)
         
         # Model utilities
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=l2_reg)
-        self.scheduler = StepLR(self.optimizer, step_size=20, gamma=0.5)
         self.criterion = torch.nn.MSELoss(reduction='none')
         self.device = device
         self.losses = []
+        self.states = []
 
-        self.params = {'model': 'GCN',
+        self.params = {'model': 'GNN',
                        'input_dim': input_dim,
                        'hidden_dim': hidden_dim,
                        'output_dim': output_dim,
@@ -111,33 +107,35 @@ class StaticGCN(torch.nn.Module):
 
     def forward(self, data):
         x, edge_index = data.x.to(self.device), data.edge_index.to(self.device)
-
-        for conv in self.convs:
-            x = conv(x, edge_index)
+        
+        # First SageConv Layer (Outside of loop)
+        x = self.convs[0](x, edge_index)
+        x = F.relu(x)
+        x = F.dropout(x, training=self.training)
+        
+        # Using loop for subsequent Linear + SAGEConv layers
+        for i in range(1, len(self.convs) - 1, 2):  # step by 2 because we have two layers in each iteration
+            # Fully Connected Layer
+            x = self.convs[i](x)
+            x = F.relu(x)
+            x = F.dropout(x, training=self.training)
+            
+            # SAGEConv Layer
+            x = self.convs[i+1](x, edge_index)
             x = F.relu(x)
             x = F.dropout(x, training=self.training)
 
-        # Using the main fc for dimensions 1 and 3
-        main_out = self.fc(x)
-        dim1, dim3 = main_out[:, 0], main_out[:, 2]
-
-        # Extracting dim1 and dim3 to use as input for aux_fc
-        aux_input = torch.stack([dim1, dim3], dim=-1)
+        # Final fully connected layer
+        x = global_mean_pool(x, batch=data.batch)
+        x = self.fc(x)
         
-        # Pass through the more complex aux_fc network
-        aux_hidden1 = F.relu(self.aux_fc1(aux_input))
-        aux_hidden2 = F.relu(self.aux_fc2(aux_hidden1))
-        aux_out = self.aux_fc_out(aux_hidden2).squeeze(-1)
-
-        # Concatenate results
-        final_out = torch.stack([dim1, aux_out, dim3], dim=-1)
-        
-        x = global_mean_pool(final_out, batch=data.batch)
         return x
+
+
 
     def train(self, X_train, edge_index, y_train, X_val=None, y_val=None, epochs=100, use_tqdm=True, save_loss=False):
         """
-        Train the StaticGCN model.
+        Train the StaticGNN model.
 
         Args:
             X_train (np.array): Training node features.
@@ -173,8 +171,8 @@ class StaticGCN(torch.nn.Module):
             pbar = tqdm(total=epochs*len(loader),
                         desc="Training Progress")
 
-        min_loss = float('inf')
         for epoch in range(epochs):
+            train_loss = np.zeros(y_train.shape[1])
             for data in loader:
                 data = data.to(self.device)
                 self.optimizer.zero_grad()
@@ -182,7 +180,7 @@ class StaticGCN(torch.nn.Module):
                 loss = self.criterion(out, data.y) * self.weights
                 loss.mean().backward()
                 self.optimizer.step()
-                self.scheduler.step()
+                train_loss += np.mean(loss.detach().cpu().numpy(), axis=0)
 
                 if use_tqdm:
                     pbar.set_description(f"Epoch {epoch}")
@@ -193,31 +191,33 @@ class StaticGCN(torch.nn.Module):
 
             if save_loss:
                 if X_val is not None and y_val is not None:
-                    val_losses = np.zeros((0, y_val.shape[1]))
+                    val_losses = np.zeros(y_val.shape[1])
                     for val_data in val_loader:
                         val_data = val_data.to(self.device)
                         with torch.no_grad():
                             val_out = self(val_data)
                             val_loss = self.criterion(val_out, val_data.y)
                             val_loss = np.mean(val_loss.detach().cpu().numpy(), axis=0)
-                            val_losses = np.vstack((val_losses, val_loss))
-                    losses = np.mean(val_losses, axis=0)
-                    mean_loss = np.mean(losses)
+                            val_losses += val_loss
+
+                    losses = val_losses/len(val_loader)
+                    mean_loss = float(np.mean(losses))
                 else:
-                    losses = np.mean(loss.detach().cpu().numpy(), axis=0)
+                    losses = train_loss/len(loader)
                     mean_loss = float(np.mean(losses))
 
 
                 self.losses.append((*losses.tolist(), mean_loss))
-                if mean_loss < min_loss:
-                    min_loss = mean_loss
-                    torch.save(self.state_dict(), 'models/best_model.pth')
+                self.states.append(self.state_dict())
 
         if use_tqdm:
             pbar.close()
 
         if save_loss:
+            self.losses = [self._moving_average(loss).tolist() for loss in np.transpose(self.losses)]
+
             self.params['losses'] = self.losses
+            self.params['best_epoch'] = int(np.argmin(self.losses[-1]))
 
             # Get the current time and format it as a string
             now = datetime.now()
@@ -226,11 +226,11 @@ class StaticGCN(torch.nn.Module):
             # Save the parameters and losses with a timestamp in the filename
             with open(f'results/losses_{timestamp}.json', 'w') as f:
                 json.dump(self.params, f)
-            os.rename('models/best_model.pth', f'models/best_model_{timestamp}.pth')
+            torch.save(self.states[self.params['best_epoch']], f'models/best_model_{timestamp}.pth')
 
     def predict(self, X_test, edge_index, y_test):
         """
-        Predict with the trained StaticGCN model.
+        Predict with the trained StaticGNN model.
 
         Args:
             X_test (np.array): Test node features.
@@ -256,3 +256,8 @@ class StaticGCN(torch.nn.Module):
                 pred = self(data)
                 predictions = np.vstack((predictions, pred.cpu().numpy()))
         return predictions
+
+    def _moving_average(self, data, window_size=5):
+        """ Compute moving average using numpy. """
+        weights = np.ones(window_size) / window_size
+        return np.convolve(data, weights, mode='valid')
