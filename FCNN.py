@@ -143,9 +143,9 @@ class TwoInputFCNN:
             from tqdm import tqdm
             pbar = tqdm(total=epochs*len(data_loader),
                         desc="Training Progress")
-            step = 0
 
         for epoch in range(epochs):
+            train_loss = np.zeros(y.shape[1])
             for X_R_batch, X_L_batch, y_batch in data_loader:
                 X_R_batch = X_R_batch.to(self.device)
                 X_L_batch = X_L_batch.to(self.device)
@@ -158,11 +158,11 @@ class TwoInputFCNN:
                 loss = self.criterion(y_pred, y_batch) * self.weights
                 loss.mean().backward()
                 self.optimizer.step()
+                train_loss += np.mean(loss.detach().cpu().numpy(), axis=0)
 
                 if use_tqdm:
                     pbar.set_description(f"Epoch {epoch}")
                     pbar.update()
-                    step += 1
 
             if use_tqdm:
                 pbar.set_postfix({'loss': loss.mean().item()})
@@ -177,13 +177,12 @@ class TwoInputFCNN:
                         val_loss = self.criterion(
                             y_val_pred, y_val_tensor)
                         val_loss = val_loss.detach().cpu().numpy()
+                        
                         losses = np.mean(val_loss, axis=0)
                         mean_loss = float(np.mean(losses))
-
                 else:
                     # Save the per-dimension loss and the mean loss
-                    train_loss = loss.detach().cpu().numpy()
-                    losses = np.mean(train_loss, axis=0)
+                    losses = train_loss/len(data_loader)
                     mean_loss = float(np.mean(losses))
                     
                 self.losses.append((*losses.tolist(), mean_loss))
