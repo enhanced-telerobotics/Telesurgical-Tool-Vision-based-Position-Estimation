@@ -55,6 +55,7 @@ class TwoInputFCNN:
             self.weights = torch.tensor(weights).to(self.device)
 
         self.losses = []
+        self.states = []
         self.params = {'model': 'FCNN',
                        'input_dim': input_dim,
                        'hidden_dim': hidden_dim,
@@ -137,7 +138,6 @@ class TwoInputFCNN:
         dataset = TensorDataset(X_R_tensor, X_L_tensor, y_tensor)
         data_loader = DataLoader(
             dataset, batch_size=self.batch_size, shuffle=True, pin_memory=True)
-        min_loss = float('inf')
 
         if use_tqdm:
             from tqdm import tqdm
@@ -187,16 +187,16 @@ class TwoInputFCNN:
                     mean_loss = float(np.mean(losses))
                     
                 self.losses.append((*losses.tolist(), mean_loss))
-                if mean_loss < min_loss:
-                    min_loss = mean_loss
-                    torch.save(self.state_dict(), 'models/best_model.pth')
-
+                self.states.append(self.state_dict())
 
         if use_tqdm:
             pbar.close()
 
         if save_loss:
+            self.losses = [self._moving_average(loss).tolist() for loss in np.transpose(self.losses)]
+
             self.params['losses'] = self.losses
+            self.params['best_epoch'] = int(np.argmin(self.losses[-1]))
 
             # Get the current time and format it as a string
             now = datetime.now()
@@ -205,7 +205,8 @@ class TwoInputFCNN:
             # Save the parameters and losses with a timestamp in the filename
             with open(f'results/losses_{timestamp}.json', 'w') as f:
                 json.dump(self.params, f)
-            os.rename('models/best_model.pth', f'models/best_model_{timestamp}.pth')
+
+            torch.save(self.states[self.params['best_epoch']], f'models/best_model_{timestamp}.pth')
 
     def predict(self, X_R, X_L):
         """
@@ -245,6 +246,11 @@ class TwoInputFCNN:
         self.model_L.load_state_dict(state_dict['model_L'])
         self.fc.load_state_dict(state_dict['fc'])
         self.optimizer.load_state_dict(state_dict['optimizer'])
+
+    def _moving_average(self, data, window_size=5):
+        """ Compute moving average using numpy. """
+        weights = np.ones(window_size) / window_size
+        return np.convolve(data, weights, mode='valid')
 
 
 if __name__ == '__main__':
