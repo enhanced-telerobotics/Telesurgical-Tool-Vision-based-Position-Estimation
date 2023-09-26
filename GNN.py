@@ -172,6 +172,7 @@ class StaticGNN(torch.nn.Module):
                         desc="Training Progress")
 
         for epoch in range(epochs):
+            train_loss = np.zeros(y_train.shape[1])
             for data in loader:
                 data = data.to(self.device)
                 self.optimizer.zero_grad()
@@ -179,6 +180,7 @@ class StaticGNN(torch.nn.Module):
                 loss = self.criterion(out, data.y) * self.weights
                 loss.mean().backward()
                 self.optimizer.step()
+                train_loss += np.mean(loss.detach().cpu().numpy(), axis=0)
 
                 if use_tqdm:
                     pbar.set_description(f"Epoch {epoch}")
@@ -189,18 +191,19 @@ class StaticGNN(torch.nn.Module):
 
             if save_loss:
                 if X_val is not None and y_val is not None:
-                    val_losses = np.zeros((0, y_val.shape[1]))
+                    val_losses = np.zeros(y_val.shape[1])
                     for val_data in val_loader:
                         val_data = val_data.to(self.device)
                         with torch.no_grad():
                             val_out = self(val_data)
                             val_loss = self.criterion(val_out, val_data.y)
                             val_loss = np.mean(val_loss.detach().cpu().numpy(), axis=0)
-                            val_losses = np.vstack((val_losses, val_loss))
-                    losses = np.mean(val_losses, axis=0)
+                            val_losses += val_loss
+
+                    losses = val_losses/len(val_loader)
                     mean_loss = float(np.mean(losses))
                 else:
-                    losses = np.mean(loss.detach().cpu().numpy(), axis=0)
+                    losses = train_loss/len(loader)
                     mean_loss = float(np.mean(losses))
 
 
