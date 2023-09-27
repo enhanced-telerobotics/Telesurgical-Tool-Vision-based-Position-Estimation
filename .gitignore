@@ -9,5 +9,5 @@ __pycache__
 *.eps
 *.pickle
 
-run.*
+run*
 test.*
