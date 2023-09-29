@@ -247,7 +247,7 @@ class StaticGNN(torch.nn.Module):
 
         test_data_list = [Data(x=X_test[i], edge_index=edge_index, y=y_test[i])
                           for i in range(X_test.shape[0])]
-        test_loader = DataLoader(test_data_list, batch_size=1, pin_memory=True)
+        test_loader = DataLoader(test_data_list, batch_size=self.batch_size, pin_memory=True)
 
         predictions = np.zeros((0, 3))
         with torch.no_grad():
