@@ -1,5 +1,7 @@
 # Telesurgical Tool Vision-based Position Estimation
 
+![flowchart](flowchart.png)
+
 This project is part of the research work titled **"Vision-Based Force Estimation for Minimally Invasive Telesurgery Through Contact Detection and Local Stiffness Models"**. The project utilizes an open-source silicone dataset of simulated palpation using surgical robot end effectors. 
 
 The project is based on DeepLabCut to track multiple keypoints of the surgical robot’s end effector. A fully connected network and a GraphSAGE graph neural network are used to reconstruct the normalized 3D position of the end effector. 
